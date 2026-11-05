@@ -12,6 +12,13 @@ A burgundy night sky for ChatGPT. It's a Tampermonkey userscript that turns Chat
 - **Rainbow mode**: triple-tap to turn the magnet ring into a spinning rainbow. Triple-tap again to switch back.
 - **Catch a star**: shooting stars slow down near your cursor. Click one to catch it, and it whips into a glowing ball of light.
 - **Ask through the orb**: click the orb, type a question, and press Enter. It's sent to ChatGPT and the orb blows up in a shockwave that ripples through the whole sky. Click anywhere else to detonate it instead.
+- **Meteor showers**: about once an hour (or on demand), around 30 gold meteors stream across the sky. Catch one for a **gold orb**.
+- **Constellations**: hold Shift and drag across stars to join them with glowing lines, then give your constellation a name.
+- **Typing shimmer**: every key you type sends a ripple through nearby stars, and sending a message launches a shooting star from the send button.
+- **Aurora**: when ChatGPT finishes an answer, a pink-and-violet aurora ripples across the top of the screen.
+- **Crescent moon**: crosses the sky from 6pm to 6am, following your real clock, and rests in the corner during the day.
+- **Night mode**: after midnight the sky dims and slows down so it's easy on your eyes, then brightens again in the morning.
+- **Settings panel**: press `Alt + Shift + M` to tweak everything with sliders and switches. Your choices are remembered.
 
 ## 📥 Install
 
@@ -34,13 +41,19 @@ Tampermonkey checks this repo for updates automatically.
 | Click a shooting star | Catch it and spin it into an orb |
 | Click the orb | Ask a question through it |
 | Click away from the orb | Detonate it |
+| `Shift` + drag across stars | Draw a constellation (drag back to the first star to close it) |
+| Type in the message box | Stars shimmer; Enter launches a shooting star |
+| `Alt + Shift + M` | Open the settings panel (`Esc` closes it) |
+| `Alt + Shift + W` | Start a meteor shower |
 | `Alt + Shift + S` | Force the sky on/off |
 
-In the browser console (F12), `merlotShoot()` launches a shooting star and `merlotRainbow()` launches a rainbow one.
+In the browser console (F12): `merlotShoot()` launches a shooting star, `merlotRainbow()` a rainbow one, and `merlot.shower()`, `merlot.aurora()` and `merlot.settings()` trigger the other effects.
 
 ## ⚙️ Settings
 
-Everything is adjustable in the `CFG` block at the top of the script (Tampermonkey dashboard → Merlot Midnight):
+The easiest way is the settings panel: press `Alt + Shift + M` on ChatGPT. It covers star amount, brightness, shooting-star frequency, magnet strength, reach and orbit speed, and switches for every effect, plus night mode (after midnight / always / off).
+
+For deeper changes, edit the `CFG` block at the top of the script (Tampermonkey dashboard → Merlot Midnight):
 
 | Setting | Default | What it does |
 | --- | --- | --- |
@@ -54,10 +67,12 @@ Everything is adjustable in the `CFG` block at the top of the script (Tampermonk
 | `shootingEveryMs` | `[6000, 14000]` | Random gap between shooting stars |
 | `rainbowEveryMs` | `300000` | How often a rainbow shooting star appears |
 | `onlyInDark` | `true` | Hide the sky in light mode |
+| `nightMode` | `'auto'` | `'auto'` dims after midnight, `'always'`, or `'off'` |
+| `showers` | `true` | Random meteor showers, about once an hour |
 
 ## 💡 Tips
 
-- If it lags on a big screen, raise `density` to around `4000`.
+- If it lags on a big screen, lower **Star amount** in the settings panel.
 - If the sky doesn't show, check that ChatGPT is in dark mode, or press `Alt + Shift + S`.
 - People who have "reduce motion" turned on get a still sky with no shooting stars.
 
