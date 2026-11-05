@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Merlot Midnight
 // @namespace    coldspyy.merlotmidnight
-// @version      3.1
+// @version      3.1.1
 // @description  A burgundy night-sky theme for ChatGPT: magnetic stars, catchable shooting stars, star orbs, meteor showers, constellations, aurora and a crescent moon
 // @author       ColdSpyy
+// @license      GPL-3.0-or-later
 // @homepageURL  https://github.com/ColdSpyy/merlot-midnight
-// @downloadURL  https://raw.githubusercontent.com/ColdSpyy/merlot-midnight/main/merlot-midnight.user.js
-// @updateURL    https://raw.githubusercontent.com/ColdSpyy/merlot-midnight/main/merlot-midnight.user.js
+// @supportURL   https://github.com/ColdSpyy/merlot-midnight/issues
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
 // @run-at       document-start
