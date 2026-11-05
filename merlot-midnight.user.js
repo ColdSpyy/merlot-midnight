@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Merlot Midnight
 // @namespace    coldspyy.merlotmidnight
-// @version      2.5
-// @description  A burgundy night-sky theme for ChatGPT: magnetic cursor stars, neon shooting stars, sparkle taps and a catchable star orb
+// @version      3.0
+// @description  A burgundy night-sky theme for ChatGPT: magnetic stars, catchable shooting stars, star orbs, meteor showers, constellations, aurora and a crescent moon
 // @author       ColdSpyy
 // @homepageURL  https://github.com/ColdSpyy/merlot-midnight
 // @downloadURL  https://raw.githubusercontent.com/ColdSpyy/merlot-midnight/main/merlot-midnight.user.js
@@ -44,7 +44,35 @@
 
     shootingEveryMs: [6000, 14000],
     rainbowEveryMs: 300000,     // one rainbow shooting star every 5 minutes
+
+    // these can also be changed live in the settings panel (Alt + Shift + M)
+    starAmount: 1,              // multiplies the number of stars
+    shootingFreq: 1,            // multiplies how often shooting stars appear
+    rainbowMagnet: false,       // triple tap toggles this
+    typingShimmer: true,        // typing ripples the stars, Enter launches a shooting star
+    aurora: true,               // aurora when ChatGPT finishes an answer
+    moon: true,                 // crescent moon that crosses the sky over the night
+    nightMode: 'auto',          // 'auto' (dim + slow after midnight), 'always', 'off'
+    showers: true,              // random meteor showers, about once an hour
   };
+
+  // settings from the panel are remembered in this browser
+  const SKEY = 'merlotMidnight.settings';
+  const SAVE_KEYS = ['starAmount', 'overlayOpacity', 'shootingFreq', 'streaks', 'showers', 'mouseStrength', 'mouseRadius',
+    'swirl', 'magnetLines', 'rainbowMagnet', 'clickBurst', 'typingShimmer', 'aurora', 'moon', 'nightMode'];
+  const DEFAULTS = {};
+  SAVE_KEYS.forEach((k) => { DEFAULTS[k] = CFG[k]; });
+  try {
+    const saved = JSON.parse(localStorage.getItem(SKEY) || '{}');
+    SAVE_KEYS.forEach((k) => { if (k in saved && typeof saved[k] === typeof CFG[k]) CFG[k] = saved[k]; });
+  } catch (_) { /* storage blocked: use defaults */ }
+  function saveSettings() {
+    try {
+      const out = {};
+      SAVE_KEYS.forEach((k) => { out[k] = CFG[k]; });
+      localStorage.setItem(SKEY, JSON.stringify(out));
+    } catch (_) { /* ignore */ }
+  }
   /* ===================================================================== */
 
   /* ---------------- BURGUNDY THEME (dark mode only) ---------------- */
@@ -222,7 +250,7 @@
     const SX = Math.cos(ang), SY = Math.sin(ang);
 
     let W = 0, H = 0, stars = [], shooters = [], sparks = [], glints = [];
-    let rainbow = false;   // triple-tap toggles rainbow magnet mode
+    let rainbow = !!CFG.rainbowMagnet;   // triple-tap toggles rainbow magnet mode
 
     // 4-point sparkle shape
     function drawGlint(x, y, r, rot, color) {
@@ -282,7 +310,7 @@
 
     function build() {
       stars = [];
-      const n = Math.round((W * H) / CFG.density);
+      const n = Math.round((W * H) / (CFG.density / Math.max(0.1, CFG.starAmount)));
       for (let i = 0; i < n; i++) stars.push(makeStar(false));
       const heroes = Math.max(1, Math.round((W * H) / CFG.heroEvery));
       for (let i = 0; i < heroes; i++) stars.push(makeStar(true));
@@ -325,10 +353,14 @@
     };
 
     addEventListener('pointerdown', (e) => {
-      if (!visible || ask.contains(e.target)) return;
+      if (!visible || ask.contains(e.target) || isOurUI(e.target)) return;
       const x = e.clientX, y = e.clientY, t = performance.now();
 
       if (askOpen()) { closeAsk(); return; }
+      if (panel.style.display !== 'none') togglePanel(false);
+
+      // Shift + drag = draw a constellation
+      if (e.shiftKey && e.button === 0) { consume(e); startConstellation(x, y); return; }
 
       if (orb) {
         if (orb.state === 'ball') {
@@ -352,6 +384,8 @@
       if (taps.length >= 3 && Math.hypot(x - taps[0].x, y - taps[0].y) < 80) {
         taps.length = 0;
         rainbow = !rainbow;
+        CFG.rainbowMagnet = rainbow;
+        saveSettings();
         spawnSparkleBurst(x, y, true);
         return;
       }
@@ -363,7 +397,7 @@
     }, true);
 
     /* ---------- shooting stars ---------- */
-    function spawnShooter(rainbow = false) {
+    function spawnShooter(rainbow = false, opts = null) {
       const fromRight = Math.random() < 0.5;
       const a = (18 + Math.random() * 25) * Math.PI / 180;
       const speed = rainbow ? 700 + Math.random() * 200 : 800 + Math.random() * 600;
@@ -376,7 +410,9 @@
         len: rainbow ? 320 + Math.random() * 120 : 170 + Math.random() * 150,
         age: 0,
         rainbow,
+        gold: false,
       });
+      if (opts) Object.assign(shooters[shooters.length - 1], opts);
     }
 
     function scheduleShooter() {
@@ -384,7 +420,7 @@
       setTimeout(() => {
         if (!document.hidden && visible && !reduceMotion) spawnShooter();
         scheduleShooter();
-      }, a + Math.random() * (b - a));
+      }, (a + Math.random() * (b - a)) / Math.max(0.1, CFG.shootingFreq * motion));
     }
 
     function drawShooter(s) {
@@ -400,6 +436,11 @@
           g.addColorStop(0.1 + i * 0.12, `hsla(${h},100%,60%,${0.9 * fade * (1 - i * 0.08)})`);
         });
         g.addColorStop(1, 'rgba(160,80,255,0)');
+      } else if (s.gold) {
+        g.addColorStop(0, `rgba(255,255,240,${fade})`);
+        g.addColorStop(0.2, `rgba(255,215,120,${0.9 * fade})`);
+        g.addColorStop(0.55, `rgba(240,150,40,${0.5 * fade})`);
+        g.addColorStop(1, 'rgba(160,90,20,0)');
       } else {
         g.addColorStop(0, `rgba(255,255,255,${fade})`);
         g.addColorStop(0.2, `rgba(255,170,205,${0.85 * fade})`);
@@ -410,7 +451,7 @@
       ctx.save();
       ctx.lineCap = 'round';
       ctx.strokeStyle = g;
-      ctx.shadowColor = s.rainbow ? 'rgba(255,255,255,0.7)' : 'rgba(255,50,130,0.95)';
+      ctx.shadowColor = s.rainbow ? 'rgba(255,255,255,0.7)' : s.gold ? 'rgba(255,170,40,0.95)' : 'rgba(255,50,130,0.95)';
       ctx.shadowBlur = s.rainbow ? 16 : 14;
       ctx.lineWidth = s.rainbow ? 3.2 : 2.2;
       ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(tx, ty); ctx.stroke();
@@ -419,7 +460,7 @@
       const hs = s.rainbow ? 34 : 26;
       ctx.globalAlpha = fade;
       ctx.drawImage(sprite('255,255,255'), s.x - hs / 2, s.y - hs / 2, hs, hs);
-      ctx.drawImage(sprite(s.rainbow ? '255,255,255' : '255,90,150'), s.x - hs, s.y - hs, hs * 2, hs * 2);
+      ctx.drawImage(sprite(s.rainbow ? '255,255,255' : s.gold ? '255,180,60' : '255,90,150'), s.x - hs, s.y - hs, hs * 2, hs * 2);
       ctx.globalAlpha = 1;
     }
 
@@ -461,7 +502,7 @@
         ang: Math.atan2(s.y - y, s.x - x),   // start the loop from where the star was
         pa: 0, pb: 0,                         // tumble phases of the orbit plane
         ax: 0, ay: 0,                         // whole-ball rotation
-        r: 2.1, trail: [], pulse: 0, boomAt: 0, lastPts: null,
+        r: 2.1, trail: [], pulse: 0, boomAt: 0, lastPts: null, gold: !!s.gold,
       };
       spawnSparkleBurst(s.x, s.y, false);
     }
@@ -530,11 +571,12 @@
       if (tr.length < 2) return;
       const R = ORB_R * (1 + orb.pulse * 0.15);
       const fill = orb.state === 'orbit' ? Math.min(1, orb.t / FORM_TIME) : 1;
+      const P = orb.gold ? PAL.gold : PAL.pink;
 
       // soft inner haze so it reads as a glowing ball
       ctx.globalAlpha = (0.15 + 0.35 * fill) * (1 + orb.pulse);
       const cg = R * 3.4 * Math.max(0.5, orb.r);
-      ctx.drawImage(sprite('255,120,185'), cx - cg / 2, cy - cg / 2, cg, cg);
+      ctx.drawImage(sprite(P.haze), cx - cg / 2, cy - cg / 2, cg, cg);
       ctx.globalAlpha = 1;
 
       // project the trail, bucketed by age (fades out) and depth (back loops dimmer)
@@ -559,10 +601,10 @@
         for (let di = 0; di < DB; di++) {
           const A = (0.15 + 0.85 * (ai + 1) / AB) * (0.3 + 0.7 * (di + 1) / DB);
           const p = paths[ai * DB + di];
-          ctx.strokeStyle = `rgba(255,100,172,${0.26 * A})`;
+          ctx.strokeStyle = `rgba(${P.glow},${0.26 * A})`;
           ctx.lineWidth = 4.5;
           ctx.stroke(p);
-          ctx.strokeStyle = `rgba(255,222,238,${0.9 * A})`;
+          ctx.strokeStyle = `rgba(${P.core},${0.9 * A})`;
           ctx.lineWidth = 1.3;
           ctx.stroke(p);
         }
@@ -571,7 +613,7 @@
       // the star itself, at the head of its trail
       const h = pts[pts.length - 1];
       ctx.drawImage(sprite('255,255,255'), h[0] - 11, h[1] - 11, 22, 22);
-      ctx.drawImage(sprite('255,90,150'), h[0] - 24, h[1] - 24, 48, 48);
+      ctx.drawImage(sprite(P.head), h[0] - 24, h[1] - 24, 48, 48);
     }
 
     function explodeOrb(x, y) {
@@ -588,12 +630,12 @@
           frags.push({
             x: mx, y: my, dx: (B[0] - A[0]) / 2, dy: (B[1] - A[1]) / 2,
             vx: (mx - cx) / d * sp, vy: (my - cy) / d * sp,
-            rot: 0, spin: (Math.random() - 0.5) * 14, t: 0, life: 0.8 + Math.random() * 0.6,
+            rot: 0, spin: (Math.random() - 0.5) * 14, t: 0, life: 0.8 + Math.random() * 0.6, gold: orb.gold,
           });
         }
       }
       spawnSparkleBurst(cx, cy, true);
-      bombs.push({ x, y, r: 0, prev: 0, t: 0 });
+      bombs.push({ x, y, r: 0, prev: 0, t: 0, gold: orb.gold });
       closeAsk();
       orb = null;
     }
@@ -685,6 +727,473 @@
     ['keyup', 'keypress'].forEach((t) => askIn.addEventListener(t, (e) => e.stopPropagation()));
     askGo.addEventListener('click', submitAsk);
 
+    /* ============================ EXTRAS ============================ */
+    const TAU = Math.PI * 2;
+    const ourUI = [];   // our own boxes/panels: taps on them are ignored by the sky
+    const isOurUI = (t) => ourUI.some((el) => el.contains(t));
+    const mountUI = () => ourUI.forEach((el) => { if (!el.isConnected) document.documentElement.appendChild(el); });
+    const shieldKeys = (el) => ['keydown', 'keyup', 'keypress'].forEach((t) => el.addEventListener(t, (e) => e.stopPropagation()));
+
+    // tiny DOM builder (no innerHTML, so ChatGPT's security rules can't block it)
+    function h(tag, style, props, kids) {
+      const el = document.createElement(tag);
+      if (style) Object.assign(el.style, style);
+      if (props) for (const k in props) el[k] = props[k];
+      if (kids) for (const c of [].concat(kids)) el.append(c);
+      return el;
+    }
+
+    /* ---------- colours: pink (normal) vs gold (caught during a meteor shower) ---------- */
+    const PAL = {
+      pink: { glow: '255,100,172', core: '255,222,238', haze: '255,120,185', head: '255,90,150', flash: '255,200,225', ring: '255,90,160', ring2: '255,228,242', ring3: '255,160,205' },
+      gold: { glow: '255,170,50', core: '255,240,200', haze: '255,190,90', head: '255,170,50', flash: '255,225,160', ring: '255,170,60', ring2: '255,245,215', ring3: '255,205,120' },
+    };
+
+    /* ---------- night mode: dim + slow after midnight, brighten again in the morning ---------- */
+    let night = 0, motion = 1, nightT = 0, nightCache = 0, lastOpacity = -1;
+    function nightTarget() {
+      if (CFG.nightMode === 'off') return 0;
+      if (CFG.nightMode === 'always') return 1;
+      const d = new Date(), hr = d.getHours() + d.getMinutes() / 60;
+      if (hr >= 23.5) return (hr - 23.5) / 0.5;   // 23:30 -> 00:00 eases in
+      if (hr < 5) return 1;
+      if (hr < 7) return 1 - (hr - 5) / 2;        // 05:00 -> 07:00 brightens back up
+      return 0;
+    }
+    function updateNight(dt, now) {
+      if (now - nightT > 1000) { nightT = now; nightCache = nightTarget(); }
+      night += (nightCache - night) * (1 - Math.exp(-dt * 0.8));
+      motion = 1 - 0.55 * night;
+      const op = +(CFG.overlayOpacity * (1 - 0.42 * night)).toFixed(3);
+      if (op !== lastOpacity && CFG.layer !== 'behind') { lastOpacity = op; canvas.style.opacity = String(op); }
+    }
+
+    /* ---------- crescent moon that crosses the sky over the night ---------- */
+    const moonImg = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      const gr = g.createRadialGradient(54, 70, 6, 64, 64, 44);
+      gr.addColorStop(0, '#fffafc');
+      gr.addColorStop(1, '#ffcfe2');
+      g.fillStyle = gr;
+      g.beginPath(); g.arc(64, 64, 40, 0, TAU); g.fill();
+      g.fillStyle = 'rgba(214,140,175,0.22)';
+      [[44, 58, 7], [52, 86, 5], [38, 76, 4], [60, 98, 3]].forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); });
+      g.globalCompositeOperation = 'destination-out';
+      g.fillStyle = '#000';
+      g.beginPath(); g.arc(78, 55, 38, 0, TAU); g.fill();
+      return c;
+    })();
+    const moonGlow = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gr.addColorStop(0, 'rgba(255,190,215,0.22)');
+      gr.addColorStop(0.35, 'rgba(255,170,205,0.09)');
+      gr.addColorStop(1, 'rgba(255,170,205,0)');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 128, 128);
+      return c;
+    })();
+    function moonPos() {
+      const d = new Date(), hr = d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+      const n = hr >= 18 ? hr - 18 : hr < 6 ? hr + 6 : -1;   // hours since 6pm, across a 12h night
+      if (n < 0) return { x: W - 64, y: 58, a: 0.45 };        // daytime: resting in the corner
+      const p = n / 12;
+      return { x: W * (0.07 + 0.86 * p), y: 56 + H * 0.2 * (1 - Math.sin(Math.PI * p)), a: 1 };
+    }
+    function drawMoon(now) {
+      if (!CFG.moon) return;
+      const m = moonPos();
+      const bob = Math.sin(now / 2200) * 1.5;
+      ctx.save();
+      ctx.translate(m.x, m.y + bob);
+      ctx.rotate(-0.35);
+      ctx.globalAlpha = m.a;
+      ctx.drawImage(moonGlow, -14 - 110, 6 - 110, 220, 220);   // soft halo around the lit edge only
+      ctx.globalAlpha = 0.97 * m.a;
+      ctx.drawImage(moonImg, -32, -32, 64, 64);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    /* ---------- aurora when ChatGPT finishes an answer ---------- */
+    let aurora = null;
+    function startAurora() { if (CFG.aurora && visible) aurora = { t: 0, life: 7.5 }; }
+    const BANDS = [
+      { base: 0.15, hh: 0.14, c1: '255,80,165', c2: '185,70,255', sp: 0.6, ph: 0 },
+      { base: 0.21, hh: 0.10, c1: '255,150,205', c2: '255,95,180', sp: 0.9, ph: 2.1 },
+      { base: 0.11, hh: 0.09, c1: '230,60,140', c2: '150,110,255', sp: 0.45, ph: 4.2 },
+    ];
+    function drawAurora(dt, now) {
+      if (!aurora) return;
+      aurora.t += dt;
+      if (aurora.t >= aurora.life) { aurora = null; return; }
+      const env = Math.min(1, aurora.t / 1.4) * Math.min(1, (aurora.life - aurora.t) / 2.2) * (1 - 0.35 * night);
+      const T = now / 1000;
+      const sweep = Math.min(1, aurora.t / 2.2) * (W + 400);   // ripples in from the left
+      for (let bi = 0; bi < BANDS.length; bi++) {
+        const b = BANDS[bi];
+        const baseY = H * b.base;
+        const bot = (x) => baseY + 16 * Math.sin(x * 0.006 + T * b.sp * 1.6 + b.ph) + 8 * Math.sin(x * 0.017 - T * b.sp * 2.3);
+        const top = (x) => baseY - H * b.hh * (0.55 + 0.45 * Math.sin(x * 0.004 + T * b.sp + b.ph));
+        const xEnd = Math.min(W, sweep);
+        if (xEnd <= 0) continue;
+        const path = new Path2D();
+        path.moveTo(0, bot(0));
+        for (let x = 24; x <= xEnd + 24; x += 24) path.lineTo(Math.min(x, xEnd), bot(Math.min(x, xEnd)));
+        const ceil = baseY - H * b.hh * 1.25;
+        path.lineTo(xEnd, ceil);
+        path.lineTo(0, ceil);
+        path.closePath();
+        const g = ctx.createLinearGradient(0, ceil, 0, baseY + 26);
+        g.addColorStop(0, `rgba(${b.c2},0)`);
+        g.addColorStop(0.35, `rgba(${b.c2},${0.07 * env})`);
+        g.addColorStop(0.7, `rgba(${b.c2},${0.2 * env})`);
+        g.addColorStop(0.9, `rgba(${b.c1},${0.36 * env})`);
+        g.addColorStop(1, `rgba(${b.c1},0)`);
+        ctx.fillStyle = g;
+        ctx.fill(path);
+        // shimmering curtain rays
+        if (bi < 2) {
+          ctx.lineWidth = 2;
+          for (let x = 4; x < xEnd; x += 9) {
+            const k = 0.5 + 0.5 * Math.sin(x * 0.031 + T * 2.2 * b.sp + b.ph) * Math.sin(x * 0.012 - T * b.sp * 1.3);
+            if (k < 0.62) continue;
+            const yb = bot(x), yt = top(x);
+            const rg = ctx.createLinearGradient(0, yt, 0, yb);
+            rg.addColorStop(0, `rgba(${b.c2},0)`);
+            rg.addColorStop(0.6, `rgba(${b.c2},${0.16 * env * (k - 0.6) * 2.5})`);
+            rg.addColorStop(1, `rgba(${b.c1},${0.34 * env * (k - 0.6) * 2.5})`);
+            ctx.strokeStyle = rg;
+            ctx.beginPath(); ctx.moveTo(x, yt); ctx.lineTo(x, yb); ctx.stroke();
+          }
+        }
+      }
+    }
+    // ChatGPT shows a stop button while answering; when it disappears, the answer is done
+    let wasStreaming = false, streamSince = 0;
+    const STOP_SEL = 'button[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop generating"]';
+    setInterval(() => {
+      const streaming = !!document.querySelector(STOP_SEL);
+      if (streaming && !wasStreaming) streamSince = performance.now();
+      if (!streaming && wasStreaming && performance.now() - streamSince > 600) startAurora();
+      wasStreaming = streaming;
+    }, 300);
+
+    /* ---------- typing shimmer + Enter launches a shooting star ---------- */
+    const ripples = [];
+    const EDITOR_SEL = '#prompt-textarea, .ProseMirror, form textarea';
+    const editorOf = (t) => t && t.closest && t.closest(EDITOR_SEL);
+    function caretPoint(ed) {
+      try {
+        const sel = getSelection();
+        if (sel.rangeCount) {
+          const rs = sel.getRangeAt(0).getClientRects();
+          const rc = rs[rs.length - 1];
+          if (rc && (rc.left || rc.top)) return [rc.right, rc.top + rc.height / 2];
+        }
+      } catch (_) { /* ignore */ }
+      const b = ed.getBoundingClientRect();
+      return [b.left + Math.min(b.width, 60), b.top + b.height / 2];
+    }
+    let lastLaunch = 0;
+    function launchFromSend() {
+      const t = performance.now();
+      if (t - lastLaunch < 600 || !visible || reduceMotion) return;
+      lastLaunch = t;
+      const btn = document.querySelector('button[data-testid="send-button"], #composer-submit-button');
+      let x = W * 0.6, y = H - 50;
+      if (btn) { const b = btn.getBoundingClientRect(); if (b.width) { x = b.left + b.width / 2; y = b.top + b.height / 2; } }
+      const a = (-112 + (Math.random() * 30 - 15)) * Math.PI / 180;   // up and to the left
+      const sp = 1150 + Math.random() * 300;
+      spawnShooter(false, { x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, len: 230 });
+      spawnSparkleBurst(x, y, false);
+    }
+    document.addEventListener('keydown', (e) => {
+      if (!visible || !CFG.typingShimmer || isOurUI(e.target)) return;
+      const ed = editorOf(e.target);
+      if (!ed) return;
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { launchFromSend(); return; }
+      if (e.key.length !== 1 && e.key !== 'Backspace') return;
+      requestAnimationFrame(() => {
+        const [x, y] = caretPoint(ed);
+        ripples.push({ x, y, r: 0, prev: 0, max: 160 });
+        glints.push({ x, y, vx: (Math.random() - 0.5) * 30, vy: -40 - Math.random() * 30, t: 0, life: 0.55, size: 4 + Math.random() * 2, rot: 0, spin: 4, tint: '255,190,220', hue: rainbow ? Math.random() * 360 : null });
+      });
+    }, true);
+    document.addEventListener('click', (e) => {
+      if (!visible || !CFG.typingShimmer) return;
+      if (e.target.closest && e.target.closest('button[data-testid="send-button"], #composer-submit-button')) launchFromSend();
+    }, true);
+
+    /* ---------- meteor shower (rare, or Alt + Shift + W) ---------- */
+    let shower = null;
+    function startShower() {
+      if (reduceMotion || !visible) return;
+      shower = { t: 0, n: 0, total: 26 + ((Math.random() * 6) | 0), dur: 7, banner: 0 };
+    }
+    function updateShower(dt) {
+      if (!shower) return;
+      shower.t += dt;
+      const want = Math.floor(shower.total * Math.min(1, shower.t / shower.dur));
+      while (shower.n < want) {
+        shower.n++;
+        const a = (138 + Math.random() * 14) * Math.PI / 180;    // all streaming down-left, like a real shower
+        const sp = 950 + Math.random() * 450;
+        spawnShooter(false, {
+          x: W * (0.35 + Math.random() * 0.75), y: -30 + Math.random() * H * 0.25,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, len: 160 + Math.random() * 130, gold: true,
+        });
+      }
+      if (shower.t > shower.dur + 3) shower = null;
+    }
+    function drawShowerBanner() {
+      if (!shower) return;
+      const a = Math.min(1, shower.t / 0.6) * Math.min(1, (shower.dur + 1 - shower.t) / 1.2);
+      if (a <= 0) return;
+      ctx.save();
+      ctx.font = '600 14px ui-sans-serif, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255,220,150,${0.9 * a})`;
+      ctx.shadowColor = `rgba(255,170,60,${a})`;
+      ctx.shadowBlur = 14;
+      ctx.fillText('✦  meteor shower — catch a gold one  ✦', W / 2, 34);
+      ctx.restore();
+    }
+    // about once an hour, at random
+    setInterval(() => {
+      if (CFG.showers && visible && !document.hidden && !shower && Math.random() < 1 / 60) startShower();
+    }, 60000);
+
+    /* ---------- constellation drawing (hold Shift + drag) ---------- */
+    const constellations = [];
+    let drawing = null;
+    function nearestStar(x, y, maxD) {
+      let best = null, bd = maxD * maxD;
+      for (const s of stars) {
+        const dx = s.hx + s.ox - x, dy = s.hy + s.oy - y, d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = s; }
+      }
+      return best;
+    }
+    function addToConstellation(x, y) {
+      const s = nearestStar(x, y, 36);
+      if (!s) return;
+      const arr = drawing.stars;
+      if (arr[arr.length - 1] === s) return;
+      if (arr.includes(s) && !(arr[0] === s && arr.length > 2)) return;   // returning to the first star closes the shape
+      arr.push(s);
+      s.flash = 1;
+      glints.push({ x: s.hx + s.ox, y: s.hy + s.oy, vx: 0, vy: 0, t: 0, life: 0.5, size: 9, rot: Math.random(), spin: 2, tint: '255,235,245', hue: rainbow ? Math.random() * 360 : null });
+    }
+    function startConstellation(x, y) {
+      drawing = { stars: [], t: 0, life: 40, name: '', done: false };
+      constellations.push(drawing);
+      if (constellations.length > 6) constellations.shift();
+      document.documentElement.style.userSelect = 'none';
+      addToConstellation(x, y);
+    }
+    function finishConstellation() {
+      if (!drawing) return;
+      const c = drawing;
+      drawing = null;
+      document.documentElement.style.userSelect = '';
+      c.done = true;
+      if (c.stars.length < 2) { constellations.splice(constellations.indexOf(c), 1); return; }
+      if (c.stars.length >= 3) openNameBox(c);
+    }
+    addEventListener('pointermove', (e) => { if (drawing) addToConstellation(e.clientX, e.clientY); }, { passive: true });
+    addEventListener('pointerup', finishConstellation, true);
+    addEventListener('blur', finishConstellation);
+
+    const nameIn = h('input', {
+      width: '220px', background: 'transparent', border: 'none', outline: 'none', color: '#fff0f4',
+      fontSize: '14px', fontFamily: 'inherit', caretColor: '#ff9ec4',
+    }, { type: 'text', placeholder: 'Name your constellation…', maxLength: 32 });
+    const nameBox = h('div', {
+      position: 'fixed', zIndex: '2147483001', display: 'none', padding: '8px 14px', borderRadius: '999px',
+      background: 'rgba(26,8,14,0.92)', border: '1px solid rgba(255,170,205,0.55)',
+      boxShadow: '0 0 18px rgba(255,110,180,0.4)', backdropFilter: 'blur(8px)',
+    }, null, nameIn);
+    ourUI.push(nameBox);
+    shieldKeys(nameIn);
+    let naming = null;
+    function constellationBox(c) {
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (const s of c.stars) {
+        const x = s.hx + s.ox, y = s.hy + s.oy;
+        x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+      }
+      return { cx: (x0 + x1) / 2, bottom: y1, top: y0 };
+    }
+    function openNameBox(c) {
+      naming = c;
+      const b = constellationBox(c);
+      nameBox.style.left = Math.max(12, Math.min(W - 270, b.cx - 125)) + 'px';
+      nameBox.style.top = Math.min(H - 60, b.bottom + 22) + 'px';
+      nameBox.style.display = 'block';
+      nameIn.value = '';
+      setTimeout(() => nameIn.focus(), 0);
+    }
+    function closeNameBox(save) {
+      if (naming && save) naming.name = nameIn.value.trim();
+      naming = null;
+      nameBox.style.display = 'none';
+    }
+    nameIn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); closeNameBox(true); }
+      else if (e.key === 'Escape') closeNameBox(false);
+    });
+    nameIn.addEventListener('blur', () => closeNameBox(true));
+
+    function drawConstellations(dt, now) {
+      for (let i = constellations.length - 1; i >= 0; i--) {
+        const c = constellations[i];
+        if (c.done && c !== naming) c.t += dt;
+        if (c.t >= c.life) { constellations.splice(i, 1); continue; }
+        const a = Math.min(1, (c.life - c.t) / 6);
+        const pts = c.stars.map((s) => [s.hx + s.ox, s.hy + s.oy]);
+        if (!c.done && mouse.inside) pts.push([mouse.sx, mouse.sy]);
+        if (pts.length < 2) continue;
+        for (let j = 1; j < pts.length; j++) {
+          const live = !c.done && j === pts.length - 1;
+          const hue = (now * 0.08 + j * 40) % 360;
+          ctx.setLineDash(live ? [4, 6] : []);
+          ctx.strokeStyle = rainbow ? `hsla(${hue},100%,65%,${0.3 * a})` : `rgba(255,110,180,${0.28 * a})`;
+          ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.moveTo(pts[j - 1][0], pts[j - 1][1]); ctx.lineTo(pts[j][0], pts[j][1]); ctx.stroke();
+          ctx.strokeStyle = rainbow ? `hsla(${hue},100%,82%,${0.85 * a})` : `rgba(255,228,242,${0.85 * a})`;
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        for (const s of c.stars) {
+          const x = s.hx + s.ox, y = s.hy + s.oy;
+          ctx.globalAlpha = 0.8 * a;
+          ctx.drawImage(sprite('255,200,225'), x - 10, y - 10, 20, 20);
+          ctx.globalAlpha = 1;
+        }
+        if (c.name) {
+          const b = constellationBox(c);
+          ctx.save();
+          ctx.font = 'italic 600 13px ui-serif, Georgia, serif';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = `rgba(255,214,232,${0.9 * a})`;
+          ctx.shadowColor = `rgba(255,110,180,${a})`;
+          ctx.shadowBlur = 10;
+          ctx.fillText(c.name, b.cx, b.bottom + 24);
+          ctx.restore();
+        }
+      }
+    }
+
+    /* ---------- settings panel (Alt + Shift + M) ---------- */
+    const panel = h('div', {
+      position: 'fixed', top: '64px', right: '20px', width: '300px', maxHeight: 'calc(100vh - 90px)', overflowY: 'auto',
+      zIndex: '2147483002', display: 'none', padding: '14px 18px 16px', borderRadius: '16px',
+      background: 'rgba(26,8,14,0.95)', border: '1px solid rgba(255,170,205,0.4)',
+      boxShadow: '0 0 28px rgba(255,110,180,0.3), inset 0 0 16px rgba(135,61,89,0.25)',
+      backdropFilter: 'blur(10px)', color: '#fff0f4', fontSize: '13px',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif', lineHeight: '1.3',
+    });
+    ourUI.push(panel);
+    shieldKeys(panel);
+    const panelSync = [];   // functions that refresh each control from CFG
+
+    function heading(text) {
+      return h('div', { margin: '14px 0 6px', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#ff9ec4', opacity: '0.85' }, { textContent: text });
+    }
+    function slider(label, key, min, max, step, fmt, onChange) {
+      const val = h('span', { color: '#ffc2da', fontVariantNumeric: 'tabular-nums' });
+      const inp = h('input', { width: '100%', accentColor: '#ff9ec4', margin: '4px 0 0' }, { type: 'range', min, max, step });
+      const sync = () => { inp.value = CFG[key]; val.textContent = fmt(+CFG[key]); };
+      inp.addEventListener('input', () => { CFG[key] = +inp.value; val.textContent = fmt(+inp.value); if (onChange) onChange(false); });
+      inp.addEventListener('change', () => { if (onChange) onChange(true); saveSettings(); });
+      panelSync.push(sync);
+      return h('label', { display: 'block', margin: '8px 0' }, null, [
+        h('div', { display: 'flex', justifyContent: 'space-between' }, null, [h('span', null, { textContent: label }), val]), inp,
+      ]);
+    }
+    function toggle(label, key, onChange) {
+      const inp = h('input', { accentColor: '#ff9ec4', width: '15px', height: '15px', margin: '0' }, { type: 'checkbox' });
+      panelSync.push(() => { inp.checked = !!CFG[key]; });
+      inp.addEventListener('change', () => { CFG[key] = inp.checked; if (onChange) onChange(); saveSettings(); });
+      return h('label', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '7px 0', cursor: 'pointer' }, null, [h('span', null, { textContent: label }), inp]);
+    }
+    function button(label, fn) {
+      const b = h('button', {
+        flex: '1', padding: '7px 8px', borderRadius: '10px', border: '1px solid rgba(255,170,205,0.45)',
+        background: '#3d1624', color: '#fff0f4', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+      }, { type: 'button', textContent: label });
+      b.addEventListener('click', fn);
+      return b;
+    }
+
+    const nightSel = h('select', {
+      background: '#3d1624', color: '#fff0f4', border: '1px solid #5e2a3d', borderRadius: '8px', padding: '3px 6px', fontFamily: 'inherit', fontSize: '12px',
+    });
+    [['auto', 'After midnight'], ['always', 'Always on'], ['off', 'Off']].forEach(([v, t]) => nightSel.append(h('option', null, { value: v, textContent: t })));
+    nightSel.addEventListener('change', () => { CFG.nightMode = nightSel.value; nightT = 0; saveSettings(); });
+    panelSync.push(() => { nightSel.value = CFG.nightMode; });
+
+    const closeBtn = h('button', { background: 'none', border: 'none', color: '#ff9ec4', fontSize: '18px', cursor: 'pointer', padding: '0 2px', lineHeight: '1' }, { type: 'button', textContent: '×', title: 'Close (Esc)' });
+    closeBtn.addEventListener('click', () => togglePanel(false));
+
+    panel.append(
+      h('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center' }, null, [
+        h('div', { fontSize: '15px', fontWeight: '600', letterSpacing: '0.02em' }, { textContent: '✦ Merlot Midnight' }), closeBtn,
+      ]),
+      heading('Sky'),
+      slider('Star amount', 'starAmount', 0.3, 2.5, 0.1, (v) => v.toFixed(1) + '×', (done) => { if (done) build(); }),
+      slider('Brightness', 'overlayOpacity', 0.3, 1, 0.05, (v) => Math.round(v * 100) + '%', () => { lastOpacity = -1; }),
+      slider('Shooting stars', 'shootingFreq', 0.25, 4, 0.25, (v) => v + '×'),
+      toggle('Long-exposure trails', 'streaks', () => build()),
+      toggle('Random meteor showers', 'showers'),
+      heading('Cursor'),
+      slider('Magnet strength', 'mouseStrength', 0, 2.5, 0.1, (v) => v.toFixed(1)),
+      slider('Magnet reach', 'mouseRadius', 80, 320, 10, (v) => v + 'px'),
+      slider('Orbit speed', 'swirl', 0, 3, 0.1, (v) => v.toFixed(1)),
+      toggle('Magnet lines', 'magnetLines'),
+      toggle('Rainbow magnet', 'rainbowMagnet', () => { rainbow = CFG.rainbowMagnet; }),
+      toggle('Tap sparkles', 'clickBurst'),
+      heading('Effects'),
+      toggle('Typing shimmer + launch on send', 'typingShimmer'),
+      toggle('Aurora when an answer finishes', 'aurora'),
+      toggle('Crescent moon', 'moon'),
+      h('label', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '8px 0' }, null, [h('span', null, { textContent: 'Night mode' }), nightSel]),
+      h('div', { display: 'flex', gap: '8px', marginTop: '12px' }, null, [
+        button('☄ Meteor shower', () => startShower()), button('✧ Aurora', () => { aurora = { t: 0, life: 7.5 }; }),
+      ]),
+      h('div', { display: 'flex', gap: '8px', marginTop: '8px' }, null, [
+        button('Reset to defaults', () => { Object.assign(CFG, DEFAULTS); rainbow = CFG.rainbowMagnet; saveSettings(); build(); lastOpacity = -1; nightT = 0; panelSync.forEach((f) => f()); }),
+      ]),
+      h('div', { marginTop: '14px', fontSize: '11px', color: '#d9a3b8', lineHeight: '1.6' }, null, [
+        h('div', null, { textContent: 'Shift + drag: draw a constellation' }),
+        h('div', null, { textContent: 'Triple tap: rainbow magnet' }),
+        h('div', null, { textContent: 'Click a shooting star: catch it' }),
+        h('div', null, { textContent: 'Alt + Shift + W: meteor shower' }),
+        h('div', null, { textContent: 'Alt + Shift + S: sky on / off' }),
+      ]),
+    );
+    function togglePanel(force) {
+      const open = force != null ? force : panel.style.display === 'none';
+      if (open) panelSync.forEach((f) => f());
+      panel.style.display = open ? 'block' : 'none';
+    }
+    panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') togglePanel(false); });
+
+    addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && panel.style.display !== 'none') { togglePanel(false); return; }
+      if (!(e.altKey && e.shiftKey)) return;
+      if (e.code === 'KeyM') { e.preventDefault(); togglePanel(); }
+      else if (e.code === 'KeyW') { e.preventDefault(); startShower(); }
+    }, true);
+
+    mountUI();
+
     /* ---------- main loop ---------- */
     let visible = true;
     let last = performance.now();
@@ -699,6 +1208,11 @@
       ctx.globalCompositeOperation = 'lighter';
       ctx.lineCap = 'round';
 
+      updateNight(dt, now);
+      drawAurora(dt, now);
+      drawMoon(now);
+      updateShower(dt);
+
       // smoothed cursor + its velocity
       const k = 1 - Math.exp(-dt * 16);
       const px = mouse.sx, py = mouse.sy;
@@ -711,7 +1225,7 @@
 
       const R = CFG.mouseRadius, R2 = R * R;
       const magnet = CFG.mouseMode !== 'repel';
-      const S = CFG.mouseStrength * mouse.on;
+      const S = (drawing ? 0 : CFG.mouseStrength) * mouse.on;   // magnet pauses while drawing a constellation
       const burst = bursts.length ? bursts.splice(0) : null;
       const near = [];
 
@@ -724,13 +1238,20 @@
         b.r += 1500 * dt;
         if (b.prev > maxR) bombs.splice(i, 1);
       }
+      // small typing shimmers
+      for (let i = ripples.length - 1; i >= 0; i--) {
+        const r = ripples[i];
+        r.prev = r.r;
+        r.r += 480 * dt;
+        if (r.prev > r.max) ripples.splice(i, 1);
+      }
       const hueBase = now * 0.12;   // rainbow keeps cycling
       const rhue = (s) => ((hueBase + s.ang * 57.2958) % 360 + 360) % 360;
 
       for (const s of stars) {
         if (!reduceMotion) {
-          s.hx += CFG.drift.x * s.depth * dt;
-          s.hy += CFG.drift.y * s.depth * dt;
+          s.hx += CFG.drift.x * s.depth * dt * motion;
+          s.hy += CFG.drift.y * s.depth * dt * motion;
           if (s.hx < -10) s.hx = W + 10; else if (s.hx > W + 10) s.hx = -10;
           if (s.hy < -10) s.hy = H + 10; else if (s.hy > H + 10) s.hy = -10;
         }
@@ -786,6 +1307,16 @@
           }
         }
 
+        for (const r of ripples) {
+          const rx = x - r.x, ry = y - r.y, rd = Math.hypot(rx, ry) || 1;
+          if (rd >= r.prev && rd < r.r) {
+            const f = 170 * (1 - r.r / r.max) * (0.5 + s.depth);
+            s.vx += (rx / rd) * f;
+            s.vy += (ry / rd) * f;
+            s.flash = Math.max(s.flash, 0.7);
+          }
+        }
+
         // elastic return home (weaker while magnetised so the magnet wins)
         const spring = 10 * (1 - e * 0.9);
         s.vx += -s.ox * spring * dt;
@@ -796,7 +1327,7 @@
         x = s.hx + s.ox; y = s.hy + s.oy;
 
         // draw
-        s.tw += s.twSpeed * dt;
+        s.tw += s.twSpeed * dt * motion;
         if (s.flash) s.flash = Math.max(0, s.flash - dt * 1.5);
         const a = Math.min(1, s.base * (0.72 + 0.28 * Math.sin(s.tw)) + e * 0.55 + s.flash * 0.5);
         const sc = 1 + e * 0.7;
@@ -854,6 +1385,8 @@
         }
       }
 
+      drawConstellations(dt, now);
+
       // tap sparkle bursts (central star flare + glitter flying out)
       for (let i = glints.length - 1; i >= 0; i--) {
         const g = glints[i];
@@ -892,11 +1425,11 @@
             vx: (Math.random() - 0.5) * 60 + s.vx * 0.05,
             vy: (Math.random() - 0.5) * 60 + s.vy * 0.05,
             life: 1,
-            tint: s.rainbow ? `${150 + Math.random() * 105 | 0},${150 + Math.random() * 105 | 0},255` : '255,170,205',
+            tint: s.rainbow ? `${150 + Math.random() * 105 | 0},${150 + Math.random() * 105 | 0},255` : s.gold ? '255,210,130' : '255,170,205',
           });
         }
         drawShooter(s);
-        if (s.x < -s.len * 1.5 || s.x > W + s.len * 1.5 || s.y > H + s.len * 1.5) shooters.splice(i, 1);
+        if (s.x < -s.len * 1.5 || s.x > W + s.len * 1.5 || s.y > H + s.len * 1.5 || s.y < -s.len * 1.5) shooters.splice(i, 1);
       }
       for (let i = sparks.length - 1; i >= 0; i--) {
         const p = sparks[i];
@@ -925,36 +1458,39 @@
         const c = Math.cos(f.rot), s = Math.sin(f.rot);
         const dx = f.dx * c - f.dy * s, dy = f.dx * s + f.dy * c;
         const a = 1 - p;
-        ctx.strokeStyle = `rgba(255,105,175,${0.35 * a})`;
+        const FP = f.gold ? PAL.gold : PAL.pink;
+        ctx.strokeStyle = `rgba(${FP.glow},${0.35 * a})`;
         ctx.lineWidth = 5;
         ctx.beginPath(); ctx.moveTo(f.x - dx, f.y - dy); ctx.lineTo(f.x + dx, f.y + dy); ctx.stroke();
-        ctx.strokeStyle = `rgba(255,220,238,${0.95 * a})`;
+        ctx.strokeStyle = `rgba(${FP.core},${0.95 * a})`;
         ctx.lineWidth = 1.4;
         ctx.beginPath(); ctx.moveTo(f.x - dx, f.y - dy); ctx.lineTo(f.x + dx, f.y + dy); ctx.stroke();
       }
 
       // blast flash + shockwave
       for (const b of bombs) {
+        const BP = b.gold ? PAL.gold : PAL.pink;
         if (b.t < 0.45) {
           const fa = 1 - b.t / 0.45, fs = 140 + b.t * 700;
           ctx.globalAlpha = fa;
-          ctx.drawImage(sprite('255,200,225'), b.x - fs / 2, b.y - fs / 2, fs, fs);
+          ctx.drawImage(sprite(BP.flash), b.x - fs / 2, b.y - fs / 2, fs, fs);
           ctx.globalAlpha = 1;
         }
         const a = Math.max(0, 1 - b.r / maxR);
-        ctx.strokeStyle = `rgba(255,90,160,${0.2 * a})`;
+        ctx.strokeStyle = `rgba(${BP.ring},${0.2 * a})`;
         ctx.lineWidth = 16 * a + 3;
         ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
-        ctx.strokeStyle = `rgba(255,228,242,${0.75 * a})`;
+        ctx.strokeStyle = `rgba(${BP.ring2},${0.75 * a})`;
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
         if (b.r > 140) {
-          ctx.strokeStyle = `rgba(255,160,205,${0.3 * a})`;
+          ctx.strokeStyle = `rgba(${BP.ring3},${0.3 * a})`;
           ctx.lineWidth = 1.2;
           ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.72, 0, Math.PI * 2); ctx.stroke();
         }
       }
 
+      drawShowerBanner();
       ctx.globalCompositeOperation = 'source-over';
     }
 
@@ -1065,7 +1601,7 @@
     }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'disabled', 'data-state'] });
 
     // watchdog: put the sky + theme back if the page ever removes them, and keep everything on-theme
-    setInterval(() => { mount(); mountAsk(); addTheme(); fixBlue(); }, 1500);
+    setInterval(() => { mount(); mountAsk(); mountUI(); addTheme(); fixBlue(); }, 1500);
 
     syncTheme();
     resize();
@@ -1079,7 +1615,15 @@
     // Console helpers (F12): merlotRainbow()  merlotShoot()
     PAGE.merlotRainbow = () => spawnShooter(true);
     PAGE.merlotShoot = () => spawnShooter(false);
-    console.log('%c✦ Merlot Midnight running', 'color:#ff9ec4');
+    // Console helpers: merlot.shower()  merlot.aurora()  merlot.settings()
+    PAGE.merlot = {
+      shower: startShower,
+      aurora: () => { aurora = { t: 0, life: 7.5 }; },
+      settings: () => togglePanel(true),
+      shoot: () => spawnShooter(false),
+      rainbow: () => spawnShooter(true),
+    };
+    console.log('%c✦ Merlot Midnight running — Alt + Shift + M for settings', 'color:#ff9ec4');
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
