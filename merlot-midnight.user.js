@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Merlot Midnight
 // @namespace    coldspyy.merlotmidnight
-// @version      3.0
+// @version      3.1
 // @description  A burgundy night-sky theme for ChatGPT: magnetic stars, catchable shooting stars, star orbs, meteor showers, constellations, aurora and a crescent moon
 // @author       ColdSpyy
 // @homepageURL  https://github.com/ColdSpyy/merlot-midnight
@@ -160,8 +160,8 @@
       border: 1px solid #5e2a3d !important;
       box-shadow: 0 0 18px rgba(135, 61, 89, 0.28) !important;
     }
-    ${D} #composer-submit-button, ${D} button[data-testid="send-button"],
-    ${D} button[data-testid="stop-button"] { background-color: #873D59 !important; color: #fff !important; }
+    ${D} #composer-submit-button, ${D} button[data-testid="send-button"], ${D} form button[aria-label="Send"],
+    ${D} button[data-testid="stop-button"], ${D} form button[aria-label^="Stop"] { background-color: #873D59 !important; color: #fff !important; }
     ${D} #prompt-textarea, ${D} .ProseMirror { background-color: transparent !important; }
     ${D} ::selection { background: #873D59 !important; color: #fff !important; }
   `;
@@ -203,6 +203,18 @@
 
     const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const behind = CFG.layer === 'behind';
+
+    // ChatGPT keeps renaming its composer, so try every known version of the message box and buttons
+    const EDITOR_SEL = '#prompt-textarea, .ProseMirror[contenteditable="true"], [contenteditable="true"][aria-label*="Ask"], form textarea';
+    const SEND_SEL = 'button[data-testid="send-button"], #composer-submit-button, button[aria-label="Send"], button[aria-label="Send prompt"], button[aria-label="Send message"]';
+    const findEditor = () => document.querySelector('#prompt-textarea')
+      || document.querySelector('.ProseMirror[contenteditable="true"]')
+      || document.querySelector('[contenteditable="true"][aria-label*="Ask"]')
+      || document.querySelector('form textarea');
+    const findSend = (ed) => {
+      const form = ed && ed.closest('form');
+      return document.querySelector(SEND_SEL) || (form && form.querySelector('button[type="submit"]'));
+    };
 
     const canvas = document.createElement('canvas');
     canvas.id = 'merlot-midnight-sky';
@@ -341,7 +353,7 @@
     // when a tap is used by the sky (catching a star / tapping the orb), stop it clicking the page underneath
     let swallow = false;
     const swallowIfFlag = (e) => {
-      if (!swallow) return;
+      if (!swallow || !e.isTrusted) return;   // never block clicks the script makes itself (like pressing Send)
       e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
       if (e.type === 'click') swallow = false;
     };
@@ -687,27 +699,33 @@
     }
 
     function sendToChat(text) {
-      const ed = document.querySelector('#prompt-textarea')
-        || document.querySelector('.ProseMirror[contenteditable="true"]')
-        || document.querySelector('form textarea');
-      if (!ed) return;
+      const ed = findEditor();
+      if (!ed) { console.warn('[Merlot Midnight] could not find the message box'); return; }
       ed.focus();
       if (ed.tagName === 'TEXTAREA') {
         const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
         setter.call(ed, text);
         ed.dispatchEvent(new Event('input', { bubbles: true }));
       } else {
+        // replace whatever is in the box with the question
         const sel = getSelection();
         sel.selectAllChildren(ed);
-        sel.collapseToEnd();
-        document.execCommand('insertText', false, text);
+        if (!document.execCommand('insertText', false, text)) {
+          ed.textContent = text;
+          ed.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+        }
       }
-      setTimeout(() => {
-        const btn = document.querySelector('button[data-testid="send-button"]')
-          || document.querySelector('#composer-submit-button');
-        if (btn && !btn.disabled) btn.click();
-        else ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-      }, 150);
+      // the send button only appears once ChatGPT notices the text, so keep looking for a moment
+      let tries = 0;
+      const trySend = () => {
+        const btn = findSend(ed);
+        if (btn && !btn.disabled) { btn.click(); return; }
+        if (++tries < 20) { setTimeout(trySend, 100); return; }
+        const form = ed.closest('form');
+        if (form && form.requestSubmit) form.requestSubmit();
+        else ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+      };
+      setTimeout(trySend, 120);
     }
 
     function submitAsk() {
@@ -875,7 +893,7 @@
     }
     // ChatGPT shows a stop button while answering; when it disappears, the answer is done
     let wasStreaming = false, streamSince = 0;
-    const STOP_SEL = 'button[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop generating"]';
+    const STOP_SEL = 'button[data-testid="stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop generating"], button[aria-label="Stop answering"], form button[aria-label^="Stop"]';
     setInterval(() => {
       const streaming = !!document.querySelector(STOP_SEL);
       if (streaming && !wasStreaming) streamSince = performance.now();
@@ -885,7 +903,6 @@
 
     /* ---------- typing shimmer + Enter launches a shooting star ---------- */
     const ripples = [];
-    const EDITOR_SEL = '#prompt-textarea, .ProseMirror, form textarea';
     const editorOf = (t) => t && t.closest && t.closest(EDITOR_SEL);
     function caretPoint(ed) {
       try {
@@ -904,7 +921,7 @@
       const t = performance.now();
       if (t - lastLaunch < 600 || !visible || reduceMotion) return;
       lastLaunch = t;
-      const btn = document.querySelector('button[data-testid="send-button"], #composer-submit-button');
+      const btn = findSend(findEditor());
       let x = W * 0.6, y = H - 50;
       if (btn) { const b = btn.getBoundingClientRect(); if (b.width) { x = b.left + b.width / 2; y = b.top + b.height / 2; } }
       const a = (-112 + (Math.random() * 30 - 15)) * Math.PI / 180;   // up and to the left
@@ -926,7 +943,7 @@
     }, true);
     document.addEventListener('click', (e) => {
       if (!visible || !CFG.typingShimmer) return;
-      if (e.target.closest && e.target.closest('button[data-testid="send-button"], #composer-submit-button')) launchFromSend();
+      if (e.target.closest && e.target.closest(SEND_SEL)) launchFromSend();
     }, true);
 
     /* ---------- meteor shower (rare, or Alt + Shift + W) ---------- */
