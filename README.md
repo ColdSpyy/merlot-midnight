@@ -2,6 +2,11 @@
 
 A burgundy night sky for ChatGPT. It's a Tampermonkey userscript that turns ChatGPT's dark mode deep merlot and fills the page with a living star field you can play with.
 
+[![Install from Greasy Fork](https://img.shields.io/badge/Install-Greasy%20Fork-873D59?style=for-the-badge)](https://greasyfork.org/en/scripts/603938-merlot-midnight)
+[![Licence: GPL-3.0](https://img.shields.io/badge/licence-GPL--3.0-5e2a3d?style=for-the-badge)](LICENSE)
+
+![Catching a shooting star, spinning it into an orb, asking a question and blowing it up](docs/demo.gif)
+
 ## ✨ Features
 
 - **Burgundy theme**: deep merlot panels, black-cherry message bubbles, and pink-and-burgundy accents in place of ChatGPT's blue.
@@ -20,14 +25,27 @@ A burgundy night sky for ChatGPT. It's a Tampermonkey userscript that turns Chat
 - **Night mode**: after midnight the sky dims and slows down so it's easy on your eyes, then brightens again in the morning.
 - **Settings panel**: press `Alt + Shift + M` to tweak everything with sliders and switches. Your choices are remembered.
 
+## 📸 Gallery
+
+| | |
+| --- | --- |
+| ![The night sky with a shooting star and the magnet ring](docs/night-sky.jpg) | ![A caught star spun into an orb, with the ask box open](docs/star-orb.jpg) |
+| **The night sky** | **Ask through the orb** |
+| ![The orb exploding into a shockwave](docs/orb-explodes.jpg) | ![A meteor shower with a gold orb](docs/meteor-shower.jpg) |
+| **The blast** | **Meteor shower and a gold orb** |
+| ![A constellation drawn and named The Leopard](docs/constellation.jpg) | ![Aurora rippling across the top of the screen](docs/aurora.jpg) |
+| **Draw your own constellations** | **Aurora when an answer finishes** |
+| ![Rainbow magnet mode](docs/rainbow-magnet.jpg) | ![The settings panel](docs/settings-panel.jpg) |
+| **Rainbow magnet** | **Settings panel** |
+
 ## 📥 Install
 
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension in your browser.
 2. **Chrome users:** open `chrome://extensions`, turn on **Developer mode** (top right), then open Tampermonkey's **Details** and switch on **Allow User Scripts**. New Chrome versions won't run userscripts without this.
-3. [Click here to install Merlot Midnight](https://raw.githubusercontent.com/ColdSpyy/merlot-midnight/main/merlot-midnight.user.js), then press **Install** on the Tampermonkey page.
+3. Install Merlot Midnight from **[Greasy Fork](https://greasyfork.org/en/scripts/603938-merlot-midnight)** (recommended), or [straight from GitHub](https://raw.githubusercontent.com/ColdSpyy/merlot-midnight/main/merlot-midnight.user.js). Then press **Install** on the Tampermonkey page.
 4. Open [ChatGPT](https://chatgpt.com) in **dark mode** and refresh. A shooting star should appear within a couple of seconds.
 
-Tampermonkey checks this repo for updates automatically.
+Tampermonkey checks for updates automatically, wherever you installed it from.
 
 > Had the older "AMAN Burgundy Night Sky" script installed? Delete it from the Tampermonkey dashboard first so the two don't overlap.
 
@@ -75,6 +93,10 @@ For deeper changes, edit the `CFG` block at the top of the script (Tampermonkey 
 - If it lags on a big screen, lower **Star amount** in the settings panel.
 - If the sky doesn't show, check that ChatGPT is in dark mode, or press `Alt + Shift + S`.
 - People who have "reduce motion" turned on get a still sky with no shooting stars.
+
+## 📄 Licence
+
+Merlot Midnight is free software under the [GNU General Public License v3.0](LICENSE).
 
 ---
 
